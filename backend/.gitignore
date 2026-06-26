@@ -1,0 +1,34 @@
+# --- Python Environments ---
+venv/
+.venv/
+env/
+ENV/
+
+# --- Secrets & Keys (CRITICAL) ---
+.env
+*.env
+*.env.*
+
+# --- Compiled Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# --- OS Junk (Mac / Windows) ---
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+
+# --- IDEs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Local Logs & DBs ---
+*.log
+*.db
+*.sqlite3
