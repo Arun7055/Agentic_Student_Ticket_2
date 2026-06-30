@@ -6,17 +6,15 @@ import os
 
 from app.database import init_db
 from app.agent import graph_builder
-from app.endpoints import chat, admin  # <-- Notice health is gone!
+from app.endpoints import chat, admin
 
 compiled_graph = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global compiled_graph
-    print("🚀 Booting up: Syncing SQLModel tables...")
     await init_db()
     
-    print("🧠 Booting up: Hooking LangGraph subconscious into Neon DB...")
     raw_db_url = os.getenv("DATABASE_URL", "").replace("+asyncpg", "")
     
     if "?ssl=require" in raw_db_url:
@@ -24,23 +22,31 @@ async def lifespan(app: FastAPI):
     elif "&ssl=require" in raw_db_url:
         raw_db_url = raw_db_url.replace("&ssl=require", "&sslmode=require")
 
-    async with AsyncConnectionPool(conninfo=raw_db_url, max_size=10, kwargs={"autocommit": True}) as pool:
+    # Injected connect_timeout=10 to survive Neon DB serverless cold starts
+    if "connect_timeout=" not in raw_db_url:
+        separator = "&" if "?" in raw_db_url else "?"
+        raw_db_url = f"{raw_db_url}{separator}connect_timeout=10"
+
+    # Add 'check=AsyncConnectionPool.check_connection' so Python auto-discards dead Neon sockets
+    async with AsyncConnectionPool(
+        conninfo=raw_db_url, 
+        max_size=10, 
+        timeout=10, 
+        check=AsyncConnectionPool.check_connection,
+        kwargs={"autocommit": True}
+    ) as pool:
         checkpointer = AsyncPostgresSaver(pool)
         await checkpointer.setup() 
-        
         compiled_graph = graph_builder.compile(checkpointer=checkpointer)
-        print("🟢 Brain & Spine fully synchronized.")
-        yield
-
-    print("💤 Shutting down...")
+        
+        print("🟢 Ticketing Gateway v2 Online.")
+        yield  # <-- THIS HOLDS THE SERVER ACTIVE WHILE RUNNING
 
 app = FastAPI(title="Ticketing Gateway v2", lifespan=lifespan)
 
-# ---> THE REPLACEMENT: Built-in root landing page <---
 @app.get("/", tags=["System"])
 def root_status():
     return {"status": "online", "system": "Agentic Ticketing Gateway v2"}
 
-# Mount only the business routers
 app.include_router(chat.router)
 app.include_router(admin.router)

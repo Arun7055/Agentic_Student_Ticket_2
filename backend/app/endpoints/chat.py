@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+import json
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from langchain_core.messages import HumanMessage
 from sqlmodel import select
@@ -6,13 +8,15 @@ from sqlmodel import select
 from app.database import get_session
 from app.models import Ticket, TicketMessage
 from app.schemas import ChatInitRequest, HumanMessageRequest
-from app.services import assign_ticket_to_faculty
-import app.main as master  # Lazy reference to access the globally compiled graph
+from app.services import assign_ticket_to_faculty, dispatch_ticket_emails
+import app.main as master
 
-router = APIRouter(prefix="/chat", tags=["Chat & Triage"])
+# ---> 1. REMOVED prefix="/chat" (main.py handles it cleanly) <---
+router = APIRouter(tags=["Chat & Triage"])
 
 @router.post("/ai")
 async def ai_triage_chat(payload: ChatInitRequest, db: AsyncSession = Depends(get_session)):
+    """Legacy blocking endpoint for Swagger UI testing."""
     if not master.compiled_graph:
         raise HTTPException(status_code=500, detail="Graph engine offline")
 
@@ -27,7 +31,7 @@ async def ai_triage_chat(payload: ChatInitRequest, db: AsyncSession = Depends(ge
         await db.refresh(ticket)
 
     if ticket.status != "AI_TRIAGE":
-        raise HTTPException(status_code=400, detail="Ticket is already assigned to a human agent.")
+        raise HTTPException(status_code=400, detail="Ticket is already assigned to human staff.")
 
     user_msg = TicketMessage(ticket_id=ticket.id, sender_type="STUDENT", sender_id=payload.student_id, content=payload.message)
     db.add(user_msg)
@@ -38,13 +42,22 @@ async def ai_triage_chat(payload: ChatInitRequest, db: AsyncSession = Depends(ge
     ai_reply_text = result["messages"][-1].content
     dept = result.get("department")
     sev = result.get("severity")
+    summary = result.get("issue_summary")
 
     ai_msg = TicketMessage(ticket_id=ticket.id, sender_type="AI", content=ai_reply_text)
     db.add(ai_msg)
+
+    ticket.structured_payload = {
+        "department": dept,
+        "severity": sev,
+        "issue_summary": summary,
+        "raw_student_prompt": payload.message
+    }
+    db.add(ticket)
     await db.commit()
 
     if dept and dept != "unclassified":
-        ticket = await assign_ticket_to_faculty(db, payload.thread_id, dept, sev)
+        await assign_ticket_to_faculty(db, payload.thread_id, dept, sev)
 
     return {
         "ticket_id": ticket.id,
@@ -54,8 +67,90 @@ async def ai_triage_chat(payload: ChatInitRequest, db: AsyncSession = Depends(ge
         "reply": ai_reply_text
     }
 
+@router.post("/ai/stream")
+async def stream_ai_triage_chat(
+    payload: ChatInitRequest, 
+    background_tasks: BackgroundTasks, 
+    db: AsyncSession = Depends(get_session)
+):
+    """Production SSE streaming endpoint for Next.js frontend."""
+    if not master.compiled_graph:
+        raise HTTPException(status_code=500, detail="Graph engine offline")
+
+    stmt = select(Ticket).where(Ticket.thread_id == payload.thread_id)
+    res = await db.execute(stmt)
+    ticket = res.scalars().first()
+    
+    if not ticket:
+        ticket = Ticket(thread_id=payload.thread_id, student_id=payload.student_id)
+        db.add(ticket)
+        await db.commit()
+        await db.refresh(ticket)
+
+    if ticket.status != "AI_TRIAGE":
+        raise HTTPException(status_code=400, detail="Ticket is already assigned to human staff.")
+
+    user_msg = TicketMessage(
+        ticket_id=ticket.id, 
+        sender_type="STUDENT", 
+        sender_id=payload.student_id, 
+        content=payload.message
+    )
+    db.add(user_msg)
+    await db.commit()
+
+    async def event_generator():
+        config = {"configurable": {"thread_id": payload.thread_id}}
+        final_state = None
+
+        async for event in master.compiled_graph.astream_events(
+            {"messages": [HumanMessage(content=payload.message)]}, 
+            config=config, 
+            version="v2"
+        ):
+            kind = event["event"]
+            if kind == "on_chat_model_stream":
+                content = event["data"]["chunk"].content
+                if content:
+                    packet = json.dumps({"token": content, "is_done": False})
+                    yield f"data: {packet}\n\n"
+                    
+            elif kind == "on_chain_end" and event["name"] == "triage":
+                final_state = event["data"]["output"]
+
+        if final_state:
+            ai_reply_text = final_state["messages"][-1].content
+            is_complete = final_state.get("is_clipboard_complete", False)
+            dept = final_state.get("department")
+            sev = final_state.get("severity")
+            summary = final_state.get("issue_summary")
+
+            ai_msg = TicketMessage(ticket_id=ticket.id, sender_type="AI", content=ai_reply_text)
+            db.add(ai_msg)
+
+            ticket.structured_payload = {
+                "department": dept,
+                "severity": sev,
+                "issue_summary": summary,
+                "missing_information": final_state.get("missing_information", []),
+                "is_clipboard_complete": is_complete
+            }
+            db.add(ticket)
+            await db.commit()
+
+            # ---> 2. THE GATEKEEPER & BACKGROUND MAILER <---
+            if is_complete and dept and dept != "unclassified":
+                await assign_ticket_to_faculty(db, payload.thread_id, dept, sev)
+                print(f"⚡ Gatekeeper opened. Queuing email dispatch for ticket: {ticket.id}")
+                background_tasks.add_task(dispatch_ticket_emails, ticket.id)
+
+        yield f"data: {json.dumps({'is_done': True, 'clipboard_complete': is_complete})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 @router.post("/human")
 async def human_direct_chat(payload: HumanMessageRequest, db: AsyncSession = Depends(get_session)):
+    """Direct human-to-human messaging once AI triage is closed."""
     msg = TicketMessage(
         ticket_id=payload.ticket_id,
         sender_id=payload.sender_id,

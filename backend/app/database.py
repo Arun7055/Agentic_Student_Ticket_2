@@ -10,7 +10,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 engine = create_async_engine(
     DATABASE_URL, 
-    echo=True, # Prints actual SQL to your terminal so you can watch it work
+    echo=False, # Prints actual SQL to your terminal so you can watch it work
     future=True,
     pool_pre_ping=True,  # Test connection before handing it to FastAPI
     pool_recycle=300     # Recycle Neon connections every 5 mins
