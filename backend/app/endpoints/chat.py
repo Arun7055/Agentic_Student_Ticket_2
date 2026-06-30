@@ -6,16 +6,20 @@ from langchain_core.messages import HumanMessage
 from sqlmodel import select
 
 from app.database import get_session
-from app.models import Ticket, TicketMessage
+from app.dependencies import get_current_user
+from app.models import Ticket, TicketMessage, User
 from app.schemas import ChatInitRequest, HumanMessageRequest
 from app.services import assign_ticket_to_faculty, dispatch_ticket_emails
 import app.main as master
 
-# ---> 1. REMOVED prefix="/chat" (main.py handles it cleanly) <---
 router = APIRouter(tags=["Chat & Triage"])
 
 @router.post("/ai")
-async def ai_triage_chat(payload: ChatInitRequest, db: AsyncSession = Depends(get_session)):
+async def ai_triage_chat(
+    payload: ChatInitRequest, 
+    db: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user) # Secure Bouncer added to legacy route
+):
     """Legacy blocking endpoint for Swagger UI testing."""
     if not master.compiled_graph:
         raise HTTPException(status_code=500, detail="Graph engine offline")
@@ -25,7 +29,7 @@ async def ai_triage_chat(payload: ChatInitRequest, db: AsyncSession = Depends(ge
     ticket = res.scalars().first()
     
     if not ticket:
-        ticket = Ticket(thread_id=payload.thread_id, student_id=payload.student_id)
+        ticket = Ticket(thread_id=payload.thread_id, student_id=current_user.id)
         db.add(ticket)
         await db.commit()
         await db.refresh(ticket)
@@ -33,7 +37,12 @@ async def ai_triage_chat(payload: ChatInitRequest, db: AsyncSession = Depends(ge
     if ticket.status != "AI_TRIAGE":
         raise HTTPException(status_code=400, detail="Ticket is already assigned to human staff.")
 
-    user_msg = TicketMessage(ticket_id=ticket.id, sender_type="STUDENT", sender_id=payload.student_id, content=payload.message)
+    user_msg = TicketMessage(
+        ticket_id=ticket.id, 
+        sender_type="STUDENT", 
+        sender_id=current_user.id, 
+        content=payload.message
+    )
     db.add(user_msg)
     await db.commit()
 
@@ -71,18 +80,33 @@ async def ai_triage_chat(payload: ChatInitRequest, db: AsyncSession = Depends(ge
 async def stream_ai_triage_chat(
     payload: ChatInitRequest, 
     background_tasks: BackgroundTasks, 
-    db: AsyncSession = Depends(get_session)
+    db: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user)
 ):
     """Production SSE streaming endpoint for Next.js frontend."""
     if not master.compiled_graph:
         raise HTTPException(status_code=500, detail="Graph engine offline")
 
+    # ---> ANTI-CONCURRENCY SHIELD <---
+    active_stmt = select(Ticket).where(
+        Ticket.student_id == current_user.id, 
+        Ticket.status == "AI_TRIAGE"
+    )
+    active_ticket = (await db.execute(active_stmt)).scalars().first()
+    
+    if active_ticket and active_ticket.thread_id != payload.thread_id:
+        raise HTTPException(
+            status_code=409, 
+            detail="Concurrency Lock: You already have an active diagnostic session open in another tab."
+        )
+
+    # Fetch or create ticket row using the CRYPTOGRAPHICALLY VERIFIED current_user.id
     stmt = select(Ticket).where(Ticket.thread_id == payload.thread_id)
     res = await db.execute(stmt)
     ticket = res.scalars().first()
     
     if not ticket:
-        ticket = Ticket(thread_id=payload.thread_id, student_id=payload.student_id)
+        ticket = Ticket(thread_id=payload.thread_id, student_id=current_user.id)
         db.add(ticket)
         await db.commit()
         await db.refresh(ticket)
@@ -90,14 +114,17 @@ async def stream_ai_triage_chat(
     if ticket.status != "AI_TRIAGE":
         raise HTTPException(status_code=400, detail="Ticket is already assigned to human staff.")
 
+    # Log Student Message
     user_msg = TicketMessage(
         ticket_id=ticket.id, 
         sender_type="STUDENT", 
-        sender_id=payload.student_id, 
+        sender_id=current_user.id,
         content=payload.message
     )
     db.add(user_msg)
     await db.commit()
+
+    # The duplicated block that was causing the crash has been permanently deleted from here!
 
     async def event_generator():
         config = {"configurable": {"thread_id": payload.thread_id}}
@@ -112,7 +139,8 @@ async def stream_ai_triage_chat(
             if kind == "on_chat_model_stream":
                 content = event["data"]["chunk"].content
                 if content:
-                    packet = json.dumps({"token": content, "is_done": False})
+                    # Tweaked to "content" to perfectly match the Next.js parser!
+                    packet = json.dumps({"content": content, "is_done": False})
                     yield f"data: {packet}\n\n"
                     
             elif kind == "on_chain_end" and event["name"] == "triage":
@@ -138,7 +166,7 @@ async def stream_ai_triage_chat(
             db.add(ticket)
             await db.commit()
 
-            # ---> 2. THE GATEKEEPER & BACKGROUND MAILER <---
+            # ---> THE GATEKEEPER & BACKGROUND MAILER <---
             if is_complete and dept and dept != "unclassified":
                 await assign_ticket_to_faculty(db, payload.thread_id, dept, sev)
                 print(f"⚡ Gatekeeper opened. Queuing email dispatch for ticket: {ticket.id}")

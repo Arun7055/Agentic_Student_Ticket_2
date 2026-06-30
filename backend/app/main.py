@@ -2,11 +2,12 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from psycopg_pool import AsyncConnectionPool
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from fastapi.middleware.cors import CORSMiddleware
 import os
 
 from app.database import init_db
 from app.agent import graph_builder
-from app.endpoints import chat, admin
+from app.endpoints import chat, admin, users
 
 compiled_graph = None
 
@@ -44,9 +45,18 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Ticketing Gateway v2", lifespan=lifespan)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # Next.js frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows POST, GET, OPTIONS, etc.
+    allow_headers=["*"],  # Allows Authorization Bearer tokens
+)
+
 @app.get("/", tags=["System"])
 def root_status():
     return {"status": "online", "system": "Agentic Ticketing Gateway v2"}
 
 app.include_router(chat.router)
 app.include_router(admin.router)
+app.include_router(users.router)

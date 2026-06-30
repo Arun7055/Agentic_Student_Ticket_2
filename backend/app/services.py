@@ -122,7 +122,7 @@ async def dispatch_ticket_emails(ticket_id: UUID):
             <div style="font-family: sans-serif; max-width: 600px; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
                 <h2 style="color: #5cb85c; margin-top:0;">✔ Ticket Triaged & Assigned</h2>
                 <p>Your issue has been categorized by the AI Front Desk and routed to staff.</p>
-                <p><strong>Assigned Officer:</strong> {faculty.full_name}</p>
+                <p><strong>Assigned Officer:</strong> {faculty.full_name}(<a href="mailto:{faculty.email}">{faculty.email}</a>)</p>
                 <p><strong>Logged Summary:</strong> {summary}</p>
                 <p><strong>Ticket Reference:</strong> #{ticket.id}</p>
             </div>

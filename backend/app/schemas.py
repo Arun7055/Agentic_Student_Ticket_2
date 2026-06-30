@@ -3,7 +3,6 @@ from typing import Optional
 from uuid import UUID
 
 class ChatInitRequest(BaseModel):
-    student_id: UUID
     thread_id: str
     message: str
 
