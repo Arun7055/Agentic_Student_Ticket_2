@@ -7,7 +7,7 @@ import os
 
 from app.database import init_db
 from app.agent import graph_builder
-from app.endpoints import chat, admin, users
+from app.endpoints import chat, admin, users, tickets, auth
 
 compiled_graph = None
 
@@ -60,3 +60,5 @@ def root_status():
 app.include_router(chat.router)
 app.include_router(admin.router)
 app.include_router(users.router)
+app.include_router(tickets.router)
+app.include_router(auth.router)

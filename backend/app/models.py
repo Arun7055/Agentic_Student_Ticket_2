@@ -14,6 +14,7 @@ class User(SQLModel, table=True):
     full_name: str
     role: str = Field(default="STUDENT") 
     department_slug: Optional[str] = Field(default=None, index=True) 
+    password: Optional[str] = None
 
 class Ticket(SQLModel, table=True):
     __tablename__ = "tickets"

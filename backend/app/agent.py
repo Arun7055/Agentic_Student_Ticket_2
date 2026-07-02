@@ -5,6 +5,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_groq import ChatGroq
+from typing import List, Optional
 
 # 1. THE MASTER CLIPBOARD DICTIONARY
 DEPARTMENT_REQUIREMENTS = {
@@ -19,23 +20,27 @@ DEPARTMENT_REQUIREMENTS = {
 
 # 2. THE NEW DYNAMIC SLOT-FILLING CONTRACT
 class TriageDecision(BaseModel):
-    department: Literal["hostel", "admin", "exam", "placements", "library", "academics", "fee", "unclassified"] = Field(
-        description="The specific college department responsible for this issue. If unclear, use 'unclassified'."
-    )
-    severity: Literal["LOW", "MEDIUM", "HIGH"] = Field(
-        description="HIGH: Immediate safety hazard, water/power outage, exam tomorrow, financial portal blocked today. MEDIUM: Standard broken item, routine document needed this week. LOW: General casual inquiry."
+    agent_reply: str = Field(
+        description="The natural language response to send back to the student."
     )
     is_clipboard_complete: bool = Field(
-        description="True ONLY if the conversation history contains explicit answers for EVERY requirement listed for the identified department. False otherwise."
+        description="MUST be a strict boolean (true or false), do not use strings."
     )
-    missing_information: list[str] = Field(
-        description="List of specific requirement strings from the department checklist that the student has not provided yet."
+    missing_information: List[str] = Field(
+        default_factory=list,
+        description="MUST be a valid JSON array of strings. If no information is missing, return an empty array []."
     )
-    issue_summary: str = Field(
-        description="A clean, objective 1-sentence summary of the student's problem. If the clipboard is incomplete, summarize what is known so far."
+    department_slug: Optional[str] = Field(
+        default=None, 
+        description="The assigned department queue (e.g., hostel, admin, exam, placements, it)."
     )
-    agent_reply: str = Field(
-        description="If is_clipboard_complete is False, politely ask the student for the missing_information in a natural, helpful conversational tone. If True, confirm receipt and let them know the dossier has been routed to their professor."
+    severity: Optional[str] = Field(
+        default=None, 
+        description="LOW, MEDIUM, or HIGH"
+    )
+    issue_summary: Optional[str] = Field(
+        default=None, 
+        description="A brief summary of the issue."
     )
 
 # 3. GRAPH STATE
@@ -79,7 +84,7 @@ async def triage_node(state: TicketState):
     
     return {
         "messages": [reply_msg],
-        "department": decision.department,
+        "department": decision.department_slug,
         "severity": decision.severity,
         "is_clipboard_complete": decision.is_clipboard_complete,
         "missing_information": decision.missing_information,

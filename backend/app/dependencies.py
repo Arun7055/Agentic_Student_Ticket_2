@@ -13,20 +13,51 @@ from app.models import User
 # This tells FastAPI to look for the "Authorization: Bearer <token>" header
 security = HTTPBearer()
 
+# Keys
 CLERK_PEM_PUBLIC_KEY = os.getenv("CLERK_PEM_PUBLIC_KEY")
 if CLERK_PEM_PUBLIC_KEY:
-    # Fix the literal \n characters if loaded weirdly from .env
     CLERK_PEM_PUBLIC_KEY = CLERK_PEM_PUBLIC_KEY.replace("\\n", "\n")
+
+# This MUST match the secret key you used in auth.py!
+FACULTY_SECRET_KEY = os.getenv("FACULTY_SECRET_KEY", "super_secret_faculty_key_for_dev")
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_session)
 ) -> User:
-    """The Bouncer: Verifies JWT signature and provisions new users on the fly."""
+    """The Dual-Auth Bouncer: Handles both Clerk (Students) and Custom JWTs (Faculty)."""
     token = credentials.credentials
 
+    # 1. PEEK at the token payload without verifying the signature yet
     try:
-        # 1. Cryptographically verify the token (No network request needed!)
+        unverified_payload = jwt.decode(token, options={"verify_signature": False})
+    except jwt.DecodeError:
+        raise HTTPException(status_code=401, detail="Malformed token.")
+
+    # ==========================================
+    # ROUTE A: FACULTY CUSTOM JWT
+    # ==========================================
+    if unverified_payload.get("role") == "FACULTY":
+        try:
+            payload = jwt.decode(token, FACULTY_SECRET_KEY, algorithms=["HS256"])
+            user_id = payload.get("sub")
+            
+            stmt = select(User).where(User.id == user_id, User.role == "FACULTY")
+            faculty_user = (await db.execute(stmt)).scalars().first()
+            
+            if not faculty_user:
+                raise HTTPException(status_code=401, detail="Faculty account not found.")
+            return faculty_user
+            
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(status_code=401, detail="Faculty token expired. Please log in again.")
+        except jwt.InvalidTokenError:
+            raise HTTPException(status_code=401, detail="Invalid faculty token signature.")
+
+    # ==========================================
+    # ROUTE B: CLERK JWT (STUDENTS)
+    # ==========================================
+    try:
         payload = jwt.decode(
             token,
             CLERK_PEM_PUBLIC_KEY,
@@ -36,15 +67,15 @@ async def get_current_user(
         clerk_id = payload.get("sub")
         
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token has expired.")
+        raise HTTPException(status_code=401, detail="Clerk token has expired.")
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token signature.")
+        raise HTTPException(status_code=401, detail="Invalid Clerk token signature.")
 
-    # 2. Check if this student already exists in our Postgres DB
+    # Check if this student already exists in our Postgres DB
     stmt = select(User).where(User.clerk_id == clerk_id)
     user = (await db.execute(stmt)).scalars().first()
 
-    # 3. JUST-IN-TIME PROVISIONING & ACCOUNT LINKING
+    # JUST-IN-TIME PROVISIONING & ACCOUNT LINKING
     if not user:
         async with httpx.AsyncClient() as client:
             res = await client.get(
@@ -58,7 +89,6 @@ async def get_current_user(
             clerk_data = res.json()
             email = clerk_data["email_addresses"][0]["email_address"]
             
-            # ---> NEW LOGIC: Check if this email already exists (e.g., a seeded Faculty member)
             email_stmt = select(User).where(User.email == email)
             existing_user = (await db.execute(email_stmt)).scalars().first()
             
