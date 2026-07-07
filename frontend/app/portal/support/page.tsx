@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { fetchDashboardTickets } from "@/lib/api";
 import { Plus, Ticket as TicketIcon, Clock, AlertCircle, Loader2 } from "lucide-react";
-import ChatModal from "@/components/ChatModal"; // Import the modal
 
 type Ticket = {
   id: string;
@@ -19,13 +20,11 @@ type Ticket = {
 
 export default function StudentDashboard() {
   const { getToken } = useAuth();
+  const router = useRouter(); // NEW: Used to redirect to the new ticket page
+  
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  
-  // NEW STATE TO CONTROL MODAL VISIBILITY
-  const [isChatOpen, setIsChatOpen] = useState(false);
 
-  // We abstract the fetch into a reusable function so we can call it when the modal closes
   const loadTickets = async () => {
     try {
       const token = await getToken();
@@ -51,9 +50,11 @@ export default function StudentDashboard() {
     }
   };
 
-  const handleCloseModal = () => {
-    setIsChatOpen(false);
-    loadTickets(); // Refresh tickets in the background just in case they created one!
+  // NEW: Generate a UUID and send the user to the dynamic chat page
+  const handleNewTicket = () => {
+    // We can safely use randomUUID here because it's triggered by a user click, not SSR!
+    const newTicketId = crypto.randomUUID(); 
+    router.push(`/portal/tickets/${newTicketId}`);
   };
 
   return (
@@ -66,8 +67,8 @@ export default function StudentDashboard() {
           <p className="text-slate-400 text-sm mt-1">View your past requests or start a new triage session.</p>
         </div>
         <button 
-          onClick={() => setIsChatOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg transition-colors"
+          onClick={handleNewTicket}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg transition-colors shadow-lg shadow-indigo-500/20"
         >
           <Plus className="w-4 h-4" />
           New Ticket
@@ -90,43 +91,42 @@ export default function StudentDashboard() {
             </div>
           ) : (
             tickets.map((ticket) => (
-              <div key={ticket.id} className="bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-colors shadow-sm flex flex-col">
-                <div className="flex justify-between items-start mb-4">
-                  <div className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${getStatusColor(ticket.status)}`}>
-                    {ticket.status.replace("_", " ")}
+              /* NEW: Wrap the card in a Link to make it clickable */
+              <Link href={`/portal/tickets/${ticket.id}`} key={ticket.id}>
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-indigo-500/50 hover:bg-slate-800/50 transition-all cursor-pointer shadow-sm flex flex-col h-full group">
+                  <div className="flex justify-between items-start mb-4">
+                    <div className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${getStatusColor(ticket.status)}`}>
+                      {ticket.status.replace("_", " ")}
+                    </div>
+                    <div className="text-xs text-slate-500 flex items-center gap-1 group-hover:text-slate-400 transition-colors">
+                      <Clock className="w-3 h-3" />
+                      {new Date(ticket.created_at).toLocaleDateString()}
+                    </div>
                   </div>
-                  <div className="text-xs text-slate-500 flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    {new Date(ticket.created_at).toLocaleDateString()}
+                  
+                  <h3 className="text-slate-200 font-medium line-clamp-2 mb-3 flex-1 group-hover:text-indigo-300 transition-colors">
+                    {ticket.structured_payload?.issue_summary || "Awaiting AI categorization..."}
+                  </h3>
+                  
+                  <div className="flex items-center gap-4 text-xs text-slate-400 mt-auto border-t border-slate-800 pt-3">
+                    {ticket.department && (
+                      <div className="flex items-center gap-1">
+                        <span className="font-semibold text-slate-300">Queue:</span> {ticket.department.toUpperCase()}
+                      </div>
+                    )}
+                    {ticket.severity && (
+                      <div className="flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        <span className="font-semibold text-slate-300">Severity:</span> {ticket.severity}
+                      </div>
+                    )}
                   </div>
                 </div>
-                
-                <h3 className="text-slate-200 font-medium line-clamp-2 mb-3 flex-1">
-                  {ticket.structured_payload?.issue_summary || "Awaiting AI categorization..."}
-                </h3>
-                
-                <div className="flex items-center gap-4 text-xs text-slate-400 mt-auto border-t border-slate-800 pt-3">
-                  {ticket.department && (
-                    <div className="flex items-center gap-1">
-                      <span className="font-semibold text-slate-300">Queue:</span> {ticket.department.toUpperCase()}
-                    </div>
-                  )}
-                  {ticket.severity && (
-                    <div className="flex items-center gap-1">
-                      <AlertCircle className="w-3.5 h-3.5" />
-                      <span className="font-semibold text-slate-300">Severity:</span> {ticket.severity}
-                    </div>
-                  )}
-                </div>
-              </div>
+              </Link>
             ))
           )}
         </div>
       )}
-
-      {/* MODAL OVERLAY */}
-      {isChatOpen && <ChatModal onClose={handleCloseModal} />}
-
     </div>
   );
 }

@@ -107,3 +107,42 @@ async def resolve_ticket(
         "freed_faculty_id": ticket.assigned_faculty_id,
         "message": "Ticket successfully resolved."
     }
+
+@router.get("/{ticket_id}/messages")
+async def get_ticket_messages(
+    ticket_id: UUID, 
+    db: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Fetches the chat history for a specific ticket to hydrate the frontend UI."""
+    
+    # 1. Fetch the ticket to check its status and department
+    ticket_stmt = select(Ticket).where(Ticket.id == ticket_id)
+    ticket = (await db.execute(ticket_stmt)).scalars().first()
+
+    if not ticket:
+        # If no ticket exists yet, just return empty state so the UI doesn't crash
+        return {"messages": [], "department_slug": None}
+
+    # 2. Fetch all messages associated with this ticket in chronological order
+    msg_stmt = select(TicketMessage).where(
+        TicketMessage.ticket_id == ticket_id
+    ).order_by(TicketMessage.created_at)
+    
+    messages = (await db.execute(msg_stmt)).scalars().all()
+
+    # 3. Format the messages so the React frontend can easily map them
+    formatted_messages = []
+    for msg in messages:
+        # Map your DB sender_type ("STUDENT" or "AI") to the frontend roles ("user" or "ai")
+        role = "user" if msg.sender_type in ["STUDENT", "HUMAN"] else "ai"
+        formatted_messages.append({
+            "role": role,
+            "content": msg.content
+        })
+
+    # Return the payload exactly how the ChatModal expects it
+    return {
+        "messages": formatted_messages,
+        "department_slug": ticket.department  # Used by UI to lock the input box
+    }

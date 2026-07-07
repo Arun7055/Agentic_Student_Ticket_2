@@ -1,4 +1,5 @@
 import json
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,12 +25,19 @@ async def ai_triage_chat(
     if not master.compiled_graph:
         raise HTTPException(status_code=500, detail="Graph engine offline")
 
-    stmt = select(Ticket).where(Ticket.thread_id == payload.thread_id)
+   # Fetch or create ticket row using the ID directly!
+    stmt = select(Ticket).where(Ticket.id == payload.thread_id)
     res = await db.execute(stmt)
     ticket = res.scalars().first()
     
     if not ticket:
-        ticket = Ticket(thread_id=payload.thread_id, student_id=current_user.id)
+        # Force the database to use the frontend's UUID as the official primary key
+        ticket = Ticket(
+            id=payload.thread_id, 
+            thread_id=payload.thread_id, 
+            student_id=current_user.id,
+            status="AI_TRIAGE"
+        )
         db.add(ticket)
         await db.commit()
         await db.refresh(ticket)
@@ -94,19 +102,30 @@ async def stream_ai_triage_chat(
     )
     active_ticket = (await db.execute(active_stmt)).scalars().first()
     
-    if active_ticket and active_ticket.thread_id != payload.thread_id:
-        raise HTTPException(
-            status_code=409, 
-            detail="Concurrency Lock: You already have an active diagnostic session open in another tab."
-        )
+    # if active_ticket and active_ticket.thread_id != payload.thread_id:
+    #     raise HTTPException(
+    #         status_code=409, 
+    #         detail="Concurrency Lock: You already have an active diagnostic session open in another tab."
+    #     )
 
-    # Fetch or create ticket row using the CRYPTOGRAPHICALLY VERIFIED current_user.id
-    stmt = select(Ticket).where(Ticket.thread_id == payload.thread_id)
+    try:
+        real_uuid = uuid.UUID(payload.thread_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid UUID format from frontend")
+
+    # 2. Query using the real_uuid object
+    stmt = select(Ticket).where(Ticket.id == real_uuid)
     res = await db.execute(stmt)
     ticket = res.scalars().first()
     
+    # 3. Create using the real_uuid object if it doesn't exist
     if not ticket:
-        ticket = Ticket(thread_id=payload.thread_id, student_id=current_user.id)
+        ticket = Ticket(
+            id=real_uuid, 
+            thread_id=payload.thread_id,
+            student_id=current_user.id,
+            status="AI_TRIAGE"
+        )
         db.add(ticket)
         await db.commit()
         await db.refresh(ticket)
