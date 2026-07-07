@@ -47,7 +47,7 @@ app = FastAPI(title="Ticketing Gateway v2", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # Next.js frontend URL
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "agentic-student-ticket-2.vercel.app"],  # Next.js frontend URL
     allow_credentials=True,
     allow_methods=["*"],  # Allows POST, GET, OPTIONS, etc.
     allow_headers=["*"],  # Allows Authorization Bearer tokens
