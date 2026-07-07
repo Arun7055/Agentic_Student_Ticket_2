@@ -9,7 +9,7 @@ export default async function PortalIndex() {
   let destination = "/portal/support";
 
   try {
-    const response = await fetch("http://127.0.0.1:8000/users/me", {
+    const response = await fetch("https://agentic-student-ticket-2.onrender.com/users/me", {
       headers: {
         Authorization: `Bearer ${token}`
       },

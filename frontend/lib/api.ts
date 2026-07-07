@@ -1,4 +1,4 @@
-const BASE_URL = "http://localhost:8000";
+const BASE_URL = "https://agentic-student-ticket-2.onrender.com";
 
 export async function fetchDashboardTickets(token: string | null) {
   if (!token) throw new Error("No authentication token provided");

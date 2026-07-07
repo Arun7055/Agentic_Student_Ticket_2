@@ -24,7 +24,7 @@ export default function TicketPage() {
     if (!ticketId) return;
     try {
       const token = await getToken();
-      const response = await fetch(`http://localhost:8000/tickets/${ticketId}/messages`, {
+      const response = await fetch(`https://agentic-student-ticket-2.onrender.com/tickets/${ticketId}/messages`, {
         headers: { "Authorization": `Bearer ${token}` },
       });
       if (response.ok) {
@@ -65,7 +65,7 @@ export default function TicketPage() {
 
     try {
       const token = await getToken();
-      const response = await fetch("http://localhost:8000/ai/stream", {
+      const response = await fetch("https://agentic-student-ticket-2.onrender.com/ai/stream", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -17,7 +17,7 @@ export default function FacultyLogin() {
     setError("");
 
     try {
-      const response = await fetch("http://localhost:8000/auth/faculty/login", {
+      const response = await fetch("https://agentic-student-ticket-2.onrender.com/auth/faculty/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
