@@ -1,9 +1,9 @@
 # 🤖 Agentic Student Ticket System
 
-An intelligent, AI-driven IT Support diagnostic system for university students. This full-stack application uses an autonomous LangGraph agent to triage student issues in real-time via a streaming chat interface, automatically routing complete tickets to the appropriate faculty department.
+An intelligent, AI-driven IT Support system for university students. This full-stack application uses an autonomous LangGraph agent to triage student issues in real-time via a streaming chat interface, automatically routing complete tickets to the appropriate faculty department.
 
 ### 🔴 Live Demo
-**[Launch the Application](https://agentic-student-ticket-2.vercel.app)** *(Note: Requires authentication. Use the Clerk login to access the student portal).*
+**[Click here](https://agentic-student-ticket-2.vercel.app)** *(Note: Requires authentication. Use the Clerk login to access the student portal).*
 
 ---
 
@@ -47,9 +47,9 @@ This application is designed to mimic a human IT diagnostic session while guaran
 
 4. **Agentic Streaming (SSE):** The message is passed into the compiled LangGraph agent. As the LLM reasons about the IT issue, FastAPI streams the text chunks back to the Next.js frontend using Server-Sent Events (SSE) for a real-time typing effect.
 5. **Information Gathering:** If the AI determines it lacks required data (e.g., a specific error code, a Wi-Fi location, or a transaction ID), it asks follow-up questions. The conversation history is persisted in the database to maintain state.
-6. **Final Payload & Routing:** Once the AI has all necessary parameters, it outputs a structured JSON payload containing the `department`, `severity`, and `issue_summary`. 
+6. **Final Payload & Routing:** Once the AI has all necessary parameters, it outputs a structured JSON payload containing the `department`, `severity`, and `summary`. 
 6. **UI Lock & Dispatch:** The database status is updated, triggering the frontend UI to instantly lock the chat input, display a "Routed to Faculty" badge, and queue a background task to notify the relevant department.
-7. Once routed to faculty, the agent sends a mail summarizing the issue to the student as well as assigned faculty. Their mails are shared with each other. The faculty discusses the issue with the student and can close the ticket.
+7. Once routed to faculty, the agent sends a mail summarizing the issue to the student as well as assigned faculty. Their mail-ids are shared with each other. The faculty discusses the issue with the student and can close the ticket upon resolution of the problem.
 <img width="481" height="475" alt="Screenshot 2026-07-07 at 11 09 28 PM" src="https://github.com/user-attachments/assets/f391e5c6-f37c-4778-ac02-25b757653b14" />
 <img width="1275" height="883" alt="Screenshot 2026-07-07 at 11 08 07 PM" src="https://github.com/user-attachments/assets/6ba933ef-3760-4308-8d9b-71edb8cbcd3d" />
 <img width="1115" height="540" alt="Screenshot 2026-07-07 at 11 06 02 PM" src="https://github.com/user-attachments/assets/c1d90810-eba4-4915-b06d-2a89187d1aee" />
