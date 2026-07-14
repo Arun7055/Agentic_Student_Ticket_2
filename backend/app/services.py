@@ -8,6 +8,8 @@ from uuid import UUID
 from sqlalchemy import func
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
+import urllib.request
+import urllib.error
 
 from app.database import engine  
 from app.models import Ticket, User, TicketMessage
