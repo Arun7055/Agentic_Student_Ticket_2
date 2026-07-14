@@ -48,33 +48,55 @@ async def assign_ticket_to_faculty(db: AsyncSession, thread_id: str, department:
     await db.commit()
     await db.refresh(ticket)
     return ticket
-    
-# Grab credentials from environment
-GMAIL_USER = os.getenv("GMAIL_USER") # Your full @gmail.com address
-GMAIL_PASSWORD = os.getenv("GMAIL_APP_PASSWORD") # The 16-character App Password
+
+BREVO_API_KEY = os.getenv("BREVO_API_KEY")
 
 def _send_sync_email(to_email: str, subject: str, html_body: str):
-    """Synchronous helper that physically talks to Google SMTP over Port 465 (SSL)."""
-    if not GMAIL_USER or not GMAIL_PASSWORD:
-        print("❌ Gmail credentials missing in .env")
+    """Bypasses SMTP by using Brevo's HTTP API with a verified Gmail sender."""
+    if not BREVO_API_KEY:
+        print("❌ Brevo API key missing in .env", flush=True)
         return
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = f"Campus IT Desk <{GMAIL_USER}>"
-    msg["To"] = to_email
+    # 1. Brevo's specific JSON payload structure
+    payload = {
+        "sender": {
+            "name": "Campus IT Desk",
+            "email": "saiarunkumar1615@gmail.com" # 👈 Must match your verified Brevo account email
+        },
+        "to": [
+            {
+                "email": to_email
+            }
+        ],
+        "subject": subject,
+        "htmlContent": html_body
+    }
+    
+    data = json.dumps(payload).encode("utf-8")
+    
+    # 2. Package it for the Brevo endpoint
+    req = urllib.request.Request(
+        "https://api.brevo.com/v3/smtp/email",
+        data=data,
+        headers={
+            "api-key": BREVO_API_KEY,
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        },
+        method="POST"
+    )
 
-    part = MIMEText(html_body, "html")
-    msg.attach(part)
-
+    # 3. Fire the request
     try:
-        # Port 465 is Google's secure SSL SMTP tunnel
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(GMAIL_USER, GMAIL_PASSWORD)
-            server.sendmail(GMAIL_USER, to_email, msg.as_string())
-            print(f"📧 Native Email successfully shot to: {to_email}")
+        print(f"🌐 Thread started: Attempting to contact Brevo for {to_email}...", flush=True)
+        with urllib.request.urlopen(req, timeout=15) as response:
+            if response.status in [200, 201, 202]:
+                print(f"✅ Brevo API Email successfully shot to: {to_email}", flush=True)
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8')
+        print(f"❌ Brevo Email Failed with code {e.code}: {error_body}", flush=True)
     except Exception as e:
-        print(f"❌ SMTP Handshake Failed: {e}")
+        print(f"❌ Brevo Email completely crashed: {e}", flush=True)
 
 async def dispatch_ticket_emails(ticket_id: UUID):
     """Decoupled background daemon with explicit crash logging."""
