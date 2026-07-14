@@ -63,7 +63,7 @@ def _send_sync_email(to_email: str, subject: str, html_body: str):
     payload = {
         "sender": {
             "name": "Campus IT Desk",
-            "email": "saiarunkumar1615@gmail.com" # 👈 Must match your verified Brevo account email
+            "email": "saiarun.chandrasekar@gmail.com" # 👈 Must match your verified Brevo account email
         },
         "to": [
             {
